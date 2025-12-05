@@ -9,13 +9,13 @@ To get started right away, run the following command, making sure to use the cor
 ### Unix-based systems (Linux, macOS, etc.):
 
 ```bash
-./llama-embedding -m ./path/to/model --log-disable -p "Hello World!" 2>/dev/null
+./llama-embedding -m ./path/to/model --pooling mean --log-disable -p "Hello World!" 2>/dev/null
 ```
 
 ### Windows:
 
 ```powershell
-llama-embedding.exe -m ./path/to/model --log-disable -p "Hello World!" 2>$null
+llama-embedding.exe -m ./path/to/model --pooling mean --log-disable -p "Hello World!" 2>$null
 ```
 
 The above command will output space-separated float values.
@@ -38,23 +38,24 @@ The above command will output space-separated float values.
 |            | multiple embeddings          | $[[x_1,...,x_n],[x_1,...,x_n],...,[x_1,...,x_n]]$
 | 'json'     | openai style                 |
 | 'json+'    | add cosine similarity matrix |
+| 'raw'      | plain text output            |
 
 ### --embd-separator $"string"$
 | $"string"$   | |
 |--------------|-|
 | "\n"         | (default)
-| "<#embSep#>" | for exemple
-| "<#sep#>"    | other exemple
+| "<#embSep#>" | for example
+| "<#sep#>"    | other example
 
 ## examples
 ### Unix-based systems (Linux, macOS, etc.):
 
 ```bash
-./embedding -p 'Castle<#sep#>Stronghold<#sep#>Dog<#sep#>Cat' --embd-separator '<#sep#>' --embd-normalize 2  --embd-output-format '' -m './path/to/model.gguf' --n-gpu-layers 99 --log-disable 2>/dev/null
+./llama-embedding -p 'Castle<#sep#>Stronghold<#sep#>Dog<#sep#>Cat' --pooling mean --embd-separator '<#sep#>' --embd-normalize 2  --embd-output-format '' -m './path/to/model.gguf' --n-gpu-layers 99 --log-disable 2>/dev/null
 ```
 
 ### Windows:
 
 ```powershell
-embedding.exe -p 'Castle<#sep#>Stronghold<#sep#>Dog<#sep#>Cat' --embd-separator '<#sep#>' --embd-normalize 2  --embd-output-format '' -m './path/to/model.gguf' --n-gpu-layers 99 --log-disable 2>/dev/null
+llama-embedding.exe -p 'Castle<#sep#>Stronghold<#sep#>Dog<#sep#>Cat' --pooling mean --embd-separator '<#sep#>' --embd-normalize 2  --embd-output-format '' -m './path/to/model.gguf' --n-gpu-layers 99 --log-disable 2>/dev/null
 ```
