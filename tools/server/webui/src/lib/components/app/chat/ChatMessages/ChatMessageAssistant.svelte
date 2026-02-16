@@ -89,6 +89,10 @@
 	const fallbackToolCalls = $derived(typeof toolCallContent === 'string' ? toolCallContent : null);
 
 	const processingState = useProcessingState();
+
+	// Local state for raw output toggle (per message)
+	let showRawOutput = $state(false);
+
 	let currentConfig = $derived(config());
 	let isRouter = $derived(isRouterMode());
 	let displayedModel = $derived((): string | null => {
@@ -101,7 +105,7 @@
 
 	const { handleModelChange } = useModelChangeValidation({
 		getRequiredModalities: () => conversationsStore.getModalitiesUpToMessage(message.id),
-		onSuccess: (modelName) => onRegenerate(modelName)
+		onSuccess: (modelName: string) => onRegenerate(modelName)
 	});
 
 	function handleCopyModel() {
@@ -113,6 +117,12 @@
 	$effect(() => {
 		if (isEditing && textareaElement) {
 			autoResizeTextarea(textareaElement);
+		}
+	});
+
+	$effect(() => {
+		if (isLoading() && !message?.content?.trim()) {
+			processingState.startMonitoring();
 		}
 	});
 
@@ -186,7 +196,7 @@
 		<div class="mt-6 w-full max-w-[48rem]" in:fade>
 			<div class="processing-container">
 				<span class="processing-text">
-					{processingState.getProcessingMessage()}
+					{processingState.getPromptProgressText() ?? processingState.getProcessingMessage()}
 				</span>
 			</div>
 		</div>
@@ -231,7 +241,7 @@
 			</div>
 		</div>
 	{:else if message.role === 'assistant'}
-		{#if config().disableReasoningFormat}
+		{#if showRawOutput}
 			<pre class="raw-output">{messageContent || ''}</pre>
 		{:else}
 			<MarkdownContent content={messageContent || ''} />
@@ -242,7 +252,7 @@
 		</div>
 	{/if}
 
-	<div class="info my-6 grid gap-4">
+	<div class="info my-6 grid gap-4 tabular-nums">
 		{#if displayedModel()}
 			<div class="inline-flex flex-wrap items-start gap-2 text-xs text-muted-foreground">
 				{#if isRouter}
@@ -263,6 +273,23 @@
 						predictedTokens={message.timings.predicted_n}
 						predictedMs={message.timings.predicted_ms}
 					/>
+				{:else if isLoading() && currentConfig.showMessageStats}
+					{@const liveStats = processingState.getLiveProcessingStats()}
+					{@const genStats = processingState.getLiveGenerationStats()}
+					{@const promptProgress = processingState.processingState?.promptProgress}
+					{@const isStillProcessingPrompt =
+						promptProgress && promptProgress.processed < promptProgress.total}
+
+					{#if liveStats || genStats}
+						<ChatMessageStatistics
+							isLive={true}
+							isProcessingPrompt={!!isStillProcessingPrompt}
+							promptTokens={liveStats?.tokensProcessed}
+							promptMs={liveStats?.timeMs}
+							predictedTokens={genStats?.tokensGenerated}
+							predictedMs={genStats?.timeMs}
+						/>
+					{/if}
 				{/if}
 			</div>
 		{/if}
@@ -328,6 +355,9 @@
 			{onConfirmDelete}
 			{onNavigateToSibling}
 			{onShowDeleteDialogChange}
+			showRawOutputSwitch={currentConfig.showRawOutputSwitch}
+			rawOutputEnabled={showRawOutput}
+			onRawOutputToggle={(enabled) => (showRawOutput = enabled)}
 		/>
 	{/if}
 </div>

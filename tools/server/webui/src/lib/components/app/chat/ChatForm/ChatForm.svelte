@@ -10,21 +10,11 @@
 	import { INPUT_CLASSES } from '$lib/constants/input-classes';
 	import { SETTING_CONFIG_DEFAULT } from '$lib/constants/settings-config';
 	import { config } from '$lib/stores/settings.svelte';
-	import { modelsStore, modelOptions, selectedModelId } from '$lib/stores/models.svelte';
+	import { modelOptions, selectedModelId } from '$lib/stores/models.svelte';
 	import { isRouterMode } from '$lib/stores/server.svelte';
 	import { chatStore } from '$lib/stores/chat.svelte';
 	import { activeMessages } from '$lib/stores/conversations.svelte';
-	import {
-		FileTypeCategory,
-		MimeTypeApplication,
-		FileExtensionAudio,
-		FileExtensionImage,
-		FileExtensionPdf,
-		FileExtensionText,
-		MimeTypeAudio,
-		MimeTypeImage,
-		MimeTypeText
-	} from '$lib/enums';
+	import { MimeTypeText } from '$lib/enums';
 	import { isIMEComposing, parseClipboardContent } from '$lib/utils';
 	import {
 		AudioRecorder,
@@ -37,11 +27,13 @@
 	interface Props {
 		class?: string;
 		disabled?: boolean;
+		initialMessage?: string;
 		isLoading?: boolean;
 		onFileRemove?: (fileId: string) => void;
 		onFileUpload?: (files: File[]) => void;
 		onSend?: (message: string, files?: ChatUploadedFile[]) => Promise<boolean>;
 		onStop?: () => void;
+		onSystemPromptAdd?: (draft: { message: string; files: ChatUploadedFile[] }) => void;
 		showHelperText?: boolean;
 		uploadedFiles?: ChatUploadedFile[];
 	}
@@ -49,11 +41,13 @@
 	let {
 		class: className,
 		disabled = false,
+		initialMessage = '',
 		isLoading = false,
 		onFileRemove,
 		onFileUpload,
 		onSend,
 		onStop,
+		onSystemPromptAdd,
 		showHelperText = true,
 		uploadedFiles = $bindable([])
 	}: Props = $props();
@@ -61,17 +55,29 @@
 	let audioRecorder: AudioRecorder | undefined;
 	let chatFormActionsRef: ChatFormActions | undefined = $state(undefined);
 	let currentConfig = $derived(config());
-	let fileAcceptString = $state<string | undefined>(undefined);
 	let fileInputRef: ChatFormFileInputInvisible | undefined = $state(undefined);
 	let isRecording = $state(false);
-	let message = $state('');
+	let message = $derived(initialMessage);
 	let pasteLongTextToFileLength = $derived.by(() => {
 		const n = Number(currentConfig.pasteLongTextToFileLen);
 		return Number.isNaN(n) ? Number(SETTING_CONFIG_DEFAULT.pasteLongTextToFileLen) : n;
 	});
-	let previousIsLoading = $state(isLoading);
+	let previousIsLoading = $derived(isLoading);
+	let previousInitialMessage = $derived(initialMessage);
 	let recordingSupported = $state(false);
 	let textareaRef: ChatFormTextarea | undefined = $state(undefined);
+
+	// Sync message when initialMessage prop changes (e.g., after draft restoration)
+	$effect(() => {
+		if (initialMessage !== previousInitialMessage) {
+			message = initialMessage;
+			previousInitialMessage = initialMessage;
+		}
+	});
+
+	function handleSystemPromptClick() {
+		onSystemPromptAdd?.({ message, files: uploadedFiles });
+	}
 
 	// Check if model is selected (in ROUTER mode)
 	let conversationModel = $derived(
@@ -104,40 +110,6 @@
 		return null;
 	});
 
-	// State for model props reactivity
-	let modelPropsVersion = $state(0);
-
-	// Fetch model props when active model changes (works for both MODEL and ROUTER mode)
-	$effect(() => {
-		if (activeModelId) {
-			const cached = modelsStore.getModelProps(activeModelId);
-			if (!cached) {
-				modelsStore.fetchModelProps(activeModelId).then(() => {
-					modelPropsVersion++;
-				});
-			}
-		}
-	});
-
-	// Derive modalities from active model (works for both MODEL and ROUTER mode)
-	let hasAudioModality = $derived.by(() => {
-		if (activeModelId) {
-			void modelPropsVersion; // Trigger reactivity on props fetch
-			return modelsStore.modelSupportsAudio(activeModelId);
-		}
-
-		return false;
-	});
-
-	let hasVisionModality = $derived.by(() => {
-		if (activeModelId) {
-			void modelPropsVersion; // Trigger reactivity on props fetch
-			return modelsStore.modelSupportsVision(activeModelId);
-		}
-
-		return false;
-	});
-
 	function checkModelSelected(): boolean {
 		if (!hasModelSelected) {
 			// Open the model selector
@@ -148,42 +120,12 @@
 		return true;
 	}
 
-	function getAcceptStringForFileType(fileType: FileTypeCategory): string {
-		switch (fileType) {
-			case FileTypeCategory.IMAGE:
-				return [...Object.values(FileExtensionImage), ...Object.values(MimeTypeImage)].join(',');
-
-			case FileTypeCategory.AUDIO:
-				return [...Object.values(FileExtensionAudio), ...Object.values(MimeTypeAudio)].join(',');
-
-			case FileTypeCategory.PDF:
-				return [...Object.values(FileExtensionPdf), ...Object.values(MimeTypeApplication)].join(
-					','
-				);
-
-			case FileTypeCategory.TEXT:
-				return [...Object.values(FileExtensionText), MimeTypeText.PLAIN].join(',');
-
-			default:
-				return '';
-		}
-	}
-
 	function handleFileSelect(files: File[]) {
 		onFileUpload?.(files);
 	}
 
-	function handleFileUpload(fileType?: FileTypeCategory) {
-		if (fileType) {
-			fileAcceptString = getAcceptStringForFileType(fileType);
-		} else {
-			fileAcceptString = undefined;
-		}
-
-		// Use setTimeout to ensure the accept attribute is applied before opening dialog
-		setTimeout(() => {
-			fileInputRef?.click();
-		}, 10);
+	function handleFileUpload() {
+		fileInputRef?.click();
 	}
 
 	async function handleKeydown(event: KeyboardEvent) {
@@ -343,17 +285,11 @@
 	});
 </script>
 
-<ChatFormFileInputInvisible
-	bind:this={fileInputRef}
-	bind:accept={fileAcceptString}
-	{hasAudioModality}
-	{hasVisionModality}
-	onFileSelect={handleFileSelect}
-/>
+<ChatFormFileInputInvisible bind:this={fileInputRef} onFileSelect={handleFileSelect} />
 
 <form
 	onsubmit={handleSubmit}
-	class="{INPUT_CLASSES} border-radius-bottom-none mx-auto max-w-[48rem] overflow-hidden rounded-3xl backdrop-blur-md {disabled
+	class="relative {INPUT_CLASSES} border-radius-bottom-none mx-auto max-w-[48rem] overflow-hidden rounded-3xl backdrop-blur-md {disabled
 		? 'cursor-not-allowed opacity-60'
 		: ''} {className}"
 	data-slot="chat-form"
@@ -368,10 +304,11 @@
 	/>
 
 	<div
-		class="flex-column relative min-h-[48px] items-center rounded-3xl px-5 py-3 shadow-sm transition-all focus-within:shadow-md"
+		class="flex-column relative min-h-[48px] items-center rounded-3xl py-2 pb-2.25 shadow-sm transition-all focus-within:shadow-md md:!py-3"
 		onpaste={handlePaste}
 	>
 		<ChatFormTextarea
+			class="px-5 py-1.5 md:pt-0"
 			bind:this={textareaRef}
 			bind:value={message}
 			onKeydown={handleKeydown}
@@ -379,6 +316,7 @@
 		/>
 
 		<ChatFormActions
+			class="px-3"
 			bind:this={chatFormActionsRef}
 			canSend={message.trim().length > 0 || uploadedFiles.length > 0}
 			hasText={message.trim().length > 0}
@@ -389,6 +327,7 @@
 			onFileUpload={handleFileUpload}
 			onMicClick={handleMicClick}
 			onStop={handleStop}
+			onSystemPromptClick={handleSystemPromptClick}
 		/>
 	</div>
 </form>
